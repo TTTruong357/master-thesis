@@ -82,7 +82,7 @@ def compute_uniform_circle_density(model, x_grid, density_param):
 
 
 def plot_generating_uniform_density(model, device, density_param, train_loader, sampling_data, grid_width,
-                                    x_range=(-1.5, 1.5), y_range=(-1.5, 1.5), x_lim=(-1,1), y_lim=(-1,1),
+                                    x_range=(-1.5, 1.5), y_range=(-1.5, 1.5), x_lim=(-1, 1), y_lim=(-1, 1),
                                     density_function=compute_uniform_circle_density):
     fig, ax = plt.subplots()
 
@@ -107,6 +107,58 @@ def plot_generating_uniform_density(model, device, density_param, train_loader, 
     x = np.array(t)[:, 0]
     y = np.array(t)[:, 1]
     z = density_function(model, torch.tensor(t, dtype=torch.float32).to(device), density_param)
+
+    try:
+        cntr2 = ax.tricontourf(x, y, z, cmap="OrRd")
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(cntr2, cax=cax)
+    except:
+        pass
+
+    # print(z)
+
+    horizontal_transformed, vertical_transformed = np.split(np.array(t), 2)
+
+    for h in np.split(horizontal_transformed, grid_width):
+        ax.plot(h[:, 0], h[:, 1], c='b', linewidth=1.)
+
+    for v in np.split(vertical_transformed, grid_width):
+        ax.plot(v[:, 0], v[:, 1], c='b', linewidth=1.)
+
+    ax.scatter(train_loader[:, 0][:3200], train_loader[:, 1][:3200], c='black', alpha=1, s=2)
+    output = model(torch.tensor(sampling_data, dtype=torch.float32).to(device), reverse=True)
+    output = output.to('cpu').detach().numpy()
+    ax.scatter(np.array(output)[:, 0], np.array(output)[:, 1], c='green', alpha=1, s=2)
+
+    return 0
+
+
+def plot_generating_gaussian_density(model, device, density_param, train_loader, sampling_data, grid_width,
+                                    x_range=(-1.5, 1.5), y_range=(-1.5, 1.5), x_lim=(-1, 1), y_lim=(-1, 1)):
+    fig, ax = plt.subplots()
+
+    plt.xlim(*x_lim)
+    plt.ylim(*y_lim)
+
+    x = np.linspace(*x_range, grid_width)
+    y = np.linspace(*y_range, grid_width)
+
+    xv, yv = np.meshgrid(x, y, indexing='xy')
+    horizontal_lines = np.stack((xv, yv), axis=2)
+
+    xv, yv = np.meshgrid(x, y, indexing='ij')
+    vertical_lines = np.stack((xv, yv), axis=2)  # vertical_lines
+
+    all_grid_points = np.concatenate(np.concatenate((horizontal_lines, vertical_lines)), axis=0)
+    all_grid_points = torch.tensor(all_grid_points, dtype=torch.float32).to(device)
+
+    t = model(all_grid_points, reverse=True).detach()
+    t = t.to('cpu')
+    t = t.numpy()
+    x = np.array(t)[:, 0]
+    y = np.array(t)[:, 1]
+    z = compute_gaussian_density(model, torch.tensor(t, dtype=torch.float32).to(device))
 
     try:
         cntr2 = ax.tricontourf(x, y, z, cmap="OrRd")
