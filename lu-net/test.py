@@ -1,5 +1,5 @@
 import torch
-from functions import log_likelihood
+from functions import gaussian_log_likelihood
 import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
@@ -9,7 +9,7 @@ from model import register_activation_hooks
 """testing with gaussian data"""
 
 
-def testing_routine_gaussian(model, device, test_loader, batch_size, loss_function=log_likelihood,
+def testing_routine_gaussian(model, device, test_loader, batch_size, loss_function=gaussian_log_likelihood,
                              density_param=(5, 0.2), plot_name=None):
     model.eval()
     test_loss = 0
