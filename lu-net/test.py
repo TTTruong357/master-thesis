@@ -1,5 +1,5 @@
 import torch
-from functions import gaussian_log_likelihood
+from functions import gaussian_log_likelihood, uniform_circle_log_likelihood_method2
 import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
@@ -31,6 +31,28 @@ def testing_routine_gaussian(model, device, test_loader, batch_size, loss_functi
     print('Test set: Average loss: {:.4f}'.format(test_loss / len(test_loader)))
     if plot_name is not None:
         plot_distribution(output, plot_name)
+
+
+def testing_routine_uniform_method2(model, device, test_loader, batch_size,
+                                    loss_function=uniform_circle_log_likelihood_method2):
+    model.eval()
+    test_loss = 0
+
+    """outputs of L-layer are needed for the loss function"""
+    layers = []
+    for j in range(len(model.intermediate_lu_blocks)):
+        if j % 2 != 0:
+            layers.append("intermediate_lu_blocks.{}".format(j))
+    layers.append("final_lu_block.1")
+
+    with torch.no_grad():
+        for k in range(int(len(test_loader) / batch_size)):
+            saved_layers = register_activation_hooks(model, layers_to_save=layers)
+            data = test_loader[k * batch_size: k * batch_size + batch_size].to(device)
+            output = model(data)
+            loss = loss_function(output, model, saved_layers)
+            test_loss += loss
+    print('Test set: Average loss: {:.4f}'.format(test_loss / len(test_loader)))
 
 
 def plot_distribution(output, save_name):

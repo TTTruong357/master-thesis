@@ -1,19 +1,30 @@
 import torch
 import torch.nn as nn
-from functions import LeakySoftplus
+from functions import LeakySoftplus, InvertedLeakySoftplus, InvertedLeakySoftplus2
 from functools import partial
+
+
+def get_zero_grad_hook(mask, device="cuda:0"):
+    """zero out gradients"""
+
+    def hook(grad):
+        return grad * mask.to(device)
+
+    return hook
 
 
 class LUNet(nn.Module):
     def __init__(self, num_lu_blocks=1, layer_size=2, device="cuda:0"):
-        """init LUNet with given number of blocks of LU layers"""
-        print("... initialized LUNet")
         super(LUNet, self).__init__()
 
         """masks to zero out gradients"""
         self.mask_triu = torch.triu(torch.ones(layer_size, layer_size)).bool()
         self.mask_tril = torch.tril(torch.ones(layer_size, layer_size)).bool().fill_diagonal_(False)
+        # print(self.mask_triu, self.mask_tril)
         self.nonlinearity = LeakySoftplus()
+        self.inverted_nonlinearity = InvertedLeakySoftplus2
+
+        mask = torch.diag(torch.ones(layer_size))
 
         """create LU modules"""
         self.intermediate_lu_blocks = nn.ModuleList()
@@ -23,8 +34,11 @@ class LUNet(nn.Module):
             self.intermediate_lu_blocks.append(nn.Linear(layer_size, layer_size, bias=False))
             upper = self.intermediate_lu_blocks[-1]
             with torch.no_grad():
-                upper.weight.copy_(torch.triu(upper.weight))
-            upper.weight.register_hook(get_zero_grad_hook(self.mask_triu, device))
+                upper.weight.copy_(torch.triu(upper.weight))  # set lower weights to zero
+                upper.weight = torch.nn.Parameter(
+                    mask * torch.diag(torch.rand(layer_size) + 0.1) + (1. - mask) * upper.weight)
+            upper.weight.register_hook(
+                get_zero_grad_hook(self.mask_triu, device))  # tell pytorch to not use lower weights in training
             """init lower triangular weight matrix L with bias"""
             self.intermediate_lu_blocks.append(nn.Linear(layer_size, layer_size))
             lower = self.intermediate_lu_blocks[-1]
@@ -40,6 +54,8 @@ class LUNet(nn.Module):
         upper = self.final_lu_block[-1]
         with torch.no_grad():
             upper.weight.copy_(torch.triu(upper.weight))
+            upper.weight = torch.nn.Parameter(
+                mask * torch.diag(torch.rand(layer_size) + 0.1) + (1. - mask) * upper.weight)
         upper.weight.register_hook(get_zero_grad_hook(self.mask_triu, device))
         """init lower triangular weight matrix L with bias"""
         self.final_lu_block.append(nn.Linear(layer_size, layer_size))
@@ -49,28 +65,42 @@ class LUNet(nn.Module):
             lower.weight.copy_(lower.weight.fill_diagonal_(1))
         lower.weight.register_hook(get_zero_grad_hook(self.mask_tril, device))
 
-    def forward(self, x):
-        """build network"""
-        x = torch.flatten(x, 1)
-        for i, layer in enumerate(self.intermediate_lu_blocks):
-            x = layer(x)
-            if i % 2 != 0:  # after one L and U matrix
-                """apply non-linear activation"""
-                x = self.nonlinearity(x)
-        """final LU block without activation"""
-        for i, layer in enumerate(self.final_lu_block):
-            x = layer(x)
-        return x
+    def forward(self, x, reverse=False):
+        if not reverse:
+            for i, layer in enumerate(self.intermediate_lu_blocks):
+                x = layer(x)
+                if i % 2 == 1:
+                    x = self.nonlinearity(x)
 
+            """final LU block without activation"""
+            for i, layer in enumerate(self.final_lu_block):
+                x = layer(x)
+            return x
+        else:
+            """final LU-block without activation"""
+            for i, layer in reversed(list(enumerate(self.final_lu_block))):
+                if i % 2 == 1:
+                    x = x - layer.bias
+                    x = torch.linalg.solve(layer.weight, x.T)
+                if i % 2 == 0:
+                    x = torch.linalg.solve(layer.weight, x)
 
-def get_zero_grad_hook(mask, device="cuda:0"):
-    """zero out gradients"""
+            """all intermediate LU-blocks in reversed order"""
+            l = []
+            for i, layer in reversed(list(enumerate(self.intermediate_lu_blocks))):
+                if i % 2 == 1:
+                    if len(l) == 0:
+                        l.append(self.inverted_nonlinearity.apply(x))
+                    else:
+                        l.append(self.inverted_nonlinearity.apply(l[-1]))
 
-    def hook(grad):
-        return grad * mask.to(device)
+                    l[-1] = l[-1] - layer.bias.reshape(2, 1)
+                    l[-1] = torch.linalg.solve(layer.weight, l[-1])
 
-    return hook
+                if i % 2 == 0:
+                    l[-1] = torch.linalg.solve(layer.weight, l[-1])
 
+            return l[-1].T
 
 """
 * helper functions to store activations and parameters in intermediate layers of the model
