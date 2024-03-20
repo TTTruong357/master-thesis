@@ -91,6 +91,7 @@ class InvertedLeakySoftplus2(torch.autograd.Function):
             first_change = first_change | sign_changed | (sign == 0.)
             step[torch.logical_not(first_change)] *= 2
             step[sign_changed] /= 2
+            step[torch.logical_not(sign_changed)] *= 1.1
 
             x += ((y - y_approx).T * step).T
 

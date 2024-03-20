@@ -6,7 +6,7 @@ from functools import partial
 
 class CouplingLayer(nn.Module):
 
-    def __init__(self, layer_size=2, split_size_x1=1):
+    def __init__(self, layer_size=2, split_size_x1=1, nn_size=(2, 100)):
         super(CouplingLayer, self).__init__()
 
         # random split x = (x1, x2)
@@ -16,40 +16,41 @@ class CouplingLayer(nn.Module):
         temp = np.arange(layer_size)
         self.split_index = (temp[ind], temp[~ind])
 
+        self.t_net = nn.ModuleList()
+        self.s_net = nn.ModuleList()
+
         self.activation = nn.ReLU()
 
-        # t(x1)
-        self.linear1 = nn.Linear(split_size_x1, 100)
-        self.linear2 = nn.Linear(100, 100)
-        self.linear3 = nn.Linear(100, 100)
-        self.linear4 = nn.Linear(100, layer_size - split_size_x1)
+        self.t_net.append(nn.Linear(split_size_x1, nn_size[1]))
+        for _ in range(nn_size[0]):
+            self.t_net.append(nn.Linear(nn_size[1], nn_size[1]))
+        self.t_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1))
 
-        # s(x1)
-        self.linear5 = nn.Linear(split_size_x1, 100)
-        self.linear6 = nn.Linear(100, 100)
-        self.linear7 = nn.Linear(100, 100)
-        self.linear8 = nn.Linear(100, layer_size - split_size_x1)
+        self.s_net.append(nn.Linear(split_size_x1, nn_size[1]))
+        for _ in range(nn_size[0]):
+            self.s_net.append(nn.Linear(nn_size[1], nn_size[1]))
+        self.s_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1))
 
     def forward(self, x, reverse=False):
-        # x1, x2 = self.split(x)
-
-        t = self.linear1(x[:, self.split_index[0]])
+        t = self.t_net[0](x[:, self.split_index[0]])
         t = self.activation(t)
-        t = self.linear2(t)
-        t = torch.sigmoid(t)
-        t = self.linear3(t)
-        t = self.activation(t)
-        t = self.linear4(t)
-        t = torch.tanh(t)
+        for i in range(1, len(self.t_net) - 1):
+            t = self.t_net[i](t)
+            if i % 2 == 0:
+                t = self.activation(t)
+            else:
+                t = torch.sigmoid(t)
+        t = self.t_net[-1](t)  # last layer no activation
 
-        s = self.linear5(x[:, self.split_index[0]])
+        s = self.s_net[0](x[:, self.split_index[0]])
         s = self.activation(s)
-        s = self.linear6(s)
-        s = torch.tanh(s)
-        s = self.linear7(s)
-        s = self.activation(s)
-        s = self.linear8(s)
-        s = torch.sigmoid(s)
+        for i in range(1, len(self.s_net) - 1):
+            s = self.s_net[i](s)
+            if i % 2 == 0:
+                s = self.activation(s)
+            else:
+                s = torch.sigmoid(s)
+        s = self.s_net[-1](s)
 
         z = torch.zeros_like(x)
 
@@ -67,23 +68,17 @@ class CouplingLayer(nn.Module):
             # print(self.split_index[1], torch.exp(s), t)
         return z, log_det
 
-    def split(self, x):  # unnecessary
-        x1 = x[:, self.split_index[0]]
-        x2 = x[:, self.split_index[1]]
-
-        return x1, x2
-
     def join(self, x1, x2):
         pass
 
 
 class NN(nn.Module):
-    def __init__(self, num_lu_blocks=1, layer_size=2, device="cuda:0"):
+    def __init__(self, num_coupling_layers=1, layer_size=2, split_size_x1=1, nn_size=(2, 100), device="cuda:0"):
         super(NN, self).__init__()
 
         self.layers = nn.ModuleList()
-        for i in range(num_lu_blocks):
-            self.layers.append(CouplingLayer(layer_size, split_size_x1=1))
+        for i in range(num_coupling_layers):
+            self.layers.append(CouplingLayer(layer_size, split_size_x1, nn_size))
 
     def forward(self, x, reverse=False):
         if reverse:
