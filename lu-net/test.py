@@ -1,16 +1,17 @@
 import torch
-from functions import gaussian_log_likelihood, uniform_circle_log_likelihood_method2
+from tqdm import tqdm
+
+from functions import gaussian_loss_function, uniform_circle_log_likelihood_method2
 import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 from pathlib import Path
-from model import register_activation_hooks
+from model import register_activation_hooks, remove_activation_hooks
 
 """testing with gaussian data"""
 
 
-def testing_routine_gaussian(model, device, test_loader, batch_size, loss_function=gaussian_log_likelihood,
-                             density_param=(5, 0.2), plot_name=None):
+def testing_routine(model, test_loader, loss_function=gaussian_loss_function):
     model.eval()
     test_loss = 0
 
@@ -22,36 +23,13 @@ def testing_routine_gaussian(model, device, test_loader, batch_size, loss_functi
     layers.append("final_lu_block.1")
 
     with torch.no_grad():
-        for k in range(int(len(test_loader) / batch_size)):
-            saved_layers = register_activation_hooks(model, layers_to_save=layers)
-            data = test_loader[k * batch_size: k * batch_size + batch_size].to(device)
-            output = model(data)
-            loss = loss_function(output, model, saved_layers, density_param)
-            test_loss += loss
-    print('Test set: Average loss: {:.4f}'.format(test_loss / len(test_loader)))
-    if plot_name is not None:
-        plot_distribution(output, plot_name)
-
-
-def testing_routine_uniform_method2(model, device, test_loader, batch_size,
-                                    loss_function=uniform_circle_log_likelihood_method2):
-    model.eval()
-    test_loss = 0
-
-    """outputs of L-layer are needed for the loss function"""
-    layers = []
-    for j in range(len(model.intermediate_lu_blocks)):
-        if j % 2 != 0:
-            layers.append("intermediate_lu_blocks.{}".format(j))
-    layers.append("final_lu_block.1")
-
-    with torch.no_grad():
-        for k in range(int(len(test_loader) / batch_size)):
-            saved_layers = register_activation_hooks(model, layers_to_save=layers)
-            data = test_loader[k * batch_size: k * batch_size + batch_size].to(device)
-            output = model(data)
+        for i, input in tqdm(enumerate(test_loader)):
+            saved_layers, handles = register_activation_hooks(model, layers_to_save=layers)
+            output = model(input)
             loss = loss_function(output, model, saved_layers)
             test_loss += loss
+            remove_activation_hooks(handles)
+
     print('Test set: Average loss: {:.4f}'.format(test_loss / len(test_loader)))
 
 

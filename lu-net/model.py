@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from functions import LeakySoftplus, InvertedLeakySoftplus, InvertedLeakySoftplus2
+from functions import LeakySoftplus, InvertedLeakySoftplus
 from functools import partial
 
 
@@ -22,7 +22,7 @@ class LUNet(nn.Module):
         self.mask_tril = torch.tril(torch.ones(layer_size, layer_size)).bool().fill_diagonal_(False)
         # print(self.mask_triu, self.mask_tril)
         self.nonlinearity = LeakySoftplus()
-        self.inverted_nonlinearity = InvertedLeakySoftplus2
+        self.inverted_nonlinearity = InvertedLeakySoftplus
 
         mask = torch.diag(torch.ones(layer_size))
 
@@ -81,9 +81,9 @@ class LUNet(nn.Module):
             for i, layer in reversed(list(enumerate(self.final_lu_block))):
                 if i % 2 == 1:
                     x = x - layer.bias
-                    x = torch.linalg.solve(layer.weight, x.T)
+                    x = torch.linalg.solve_triangular(layer.weight, x.T, upper=False)
                 if i % 2 == 0:
-                    x = torch.linalg.solve(layer.weight, x)
+                    x = torch.linalg.solve_triangular(layer.weight, x, upper=True)
 
             """all intermediate LU-blocks in reversed order"""
             l = []
@@ -95,12 +95,13 @@ class LUNet(nn.Module):
                         l.append(self.inverted_nonlinearity.apply(l[-1]))
 
                     l[-1] = l[-1] - layer.bias.reshape(2, 1)
-                    l[-1] = torch.linalg.solve(layer.weight, l[-1])
+                    l[-1] = torch.linalg.solve_triangular(layer.weight, l[-1], upper=False)
 
                 if i % 2 == 0:
-                    l[-1] = torch.linalg.solve(layer.weight, l[-1])
+                    l[-1] = torch.linalg.solve_triangular(layer.weight, l[-1], upper=True)
 
             return l[-1].T
+
 
 """
 * helper functions to store activations and parameters in intermediate layers of the model
@@ -109,14 +110,22 @@ class LUNet(nn.Module):
 """
 
 
-def save_activations(activations_dict, name, blu, bla, out):
-    activations_dict[name].append(out)
+def save_activations(activations_dict, name, module, input, output):
+    activations_dict[name].append(output)
 
 
 def register_activation_hooks(model, layers_to_save):
-    """register forward hooks in specified layers"""
+    """Register forward hooks in specified layers"""
     activations_dict = {name: [] for name in layers_to_save}
+    handles = []
     for name, module in model.named_modules():
         if name in layers_to_save:
-            module.register_forward_hook(partial(save_activations, activations_dict, name))
-    return activations_dict
+            handle = module.register_forward_hook(partial(save_activations, activations_dict, name))
+            handles.append(handle)
+    return activations_dict, handles
+
+
+def remove_activation_hooks(handles):
+    """Remove registered hooks"""
+    for handle in handles:
+        handle.remove()

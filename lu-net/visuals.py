@@ -1,6 +1,6 @@
 import torch
 from functions import lifted_sigmoid
-from model import register_activation_hooks
+from model import register_activation_hooks, remove_activation_hooks
 import numpy as np
 
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
@@ -59,11 +59,11 @@ def compute_gaussian_density(model, x_grid, device):
     layers.append("final_lu_block.1")
 
     with torch.no_grad():
-        saved_layers = register_activation_hooks(model, layers_to_save=layers)
+        saved_layers, handles = register_activation_hooks(model, layers_to_save=layers)
         data = x_grid.clone().to(device)
         output = model(data)
         density = gaussian_likelihoods(output, model, saved_layers)
-
+        remove_activation_hooks(handles)
     return density
 
 
@@ -118,11 +118,11 @@ def compute_uniform_circle_density(model, grid_points, device):
     layers.append("final_lu_block.1")
 
     with torch.no_grad():
-        saved_layers = register_activation_hooks(model, layers_to_save=layers)
+        saved_layers, handles = register_activation_hooks(model, layers_to_save=layers)
         grid_points = grid_points.clone().to(device)
         output = model(grid_points)
         density = uniform_circle_likelihoods(output, model, saved_layers, device)
-
+        remove_activation_hooks(handles)
     return density
 
 

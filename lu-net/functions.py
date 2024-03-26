@@ -22,22 +22,7 @@ def lifted_sigmoid(x, alpha=0.1):
     return alpha + (1 - alpha) * torch.sigmoid(x)
 
 
-class InvertedLeakySoftplus(nn.Module):
-    def __init__(self, alpha: float = 0.1):
-        super(InvertedLeakySoftplus, self).__init__()
-        self.alpha = alpha
-
-    def forward(self, input: Tensor):
-        x = torch.arange(-1000., 1000.001, 0.001)
-        activation = LeakySoftplus()
-        y = activation(x)
-        tck = interpolate.splrep(y, x, s=0)
-        """data is first moved to cpu and then converted to numpy array"""
-        yfit = interpolate.splev(input.cpu().detach().numpy(), tck, der=0)
-        return torch.tensor(yfit, dtype=torch.float32)
-
-
-class InvertedLeakySoftplus2(torch.autograd.Function):
+class InvertedLeakySoftplus(torch.autograd.Function):
     """
     We can implement our own custom autograd Functions by subclassing
     torch.autograd.Function and implementing the forward and backward passes
@@ -65,10 +50,10 @@ class InvertedLeakySoftplus2(torch.autograd.Function):
         #     step *= 0.99
 
         # activation = LeakySoftplus()
-        # x = torch.arange(-1000., 1000.001, 0.001).to(device)
+        # x = torch.arange(-1000., 1000.001, 0.001, device=y.get_device())
         # y_real = activation(x)
         # x = x[torch.searchsorted(y_real, y)]
-
+        #
         activation = LeakySoftplus()
         x = activation(y)
         y_approx = activation(x)
@@ -81,7 +66,7 @@ class InvertedLeakySoftplus2(torch.autograd.Function):
 
         x += ((y - y_approx).T * step).T
 
-        while torch.any(torch.abs(torch.sum(y - y_approx, axis=1)) > 1e-6):
+        while torch.any(torch.abs(torch.sum(y - y_approx, axis=1)) > 1e-9):
             y_approx = activation(x)
 
             new_sign = torch.sign(torch.sum(y - y_approx, axis=1))
@@ -91,7 +76,7 @@ class InvertedLeakySoftplus2(torch.autograd.Function):
             first_change = first_change | sign_changed | (sign == 0.)
             step[torch.logical_not(first_change)] *= 2
             step[sign_changed] /= 2
-            step[torch.logical_not(sign_changed)] *= 1.1
+            step[torch.logical_not(sign_changed)] *= 1.5
 
             x += ((y - y_approx).T * step).T
 
@@ -111,37 +96,10 @@ class InvertedLeakySoftplus2(torch.autograd.Function):
         return grad_output * 1 / der
 
 
-class InvertedLLayer(nn.Module):
-    def __init__(self, inverted_weight=None, inverted_bias=None) -> None:
-        super(InvertedLLayer, self).__init__()
-        self.inverted_weight = inverted_weight
-        self.inverted_bias = inverted_bias
-
-    def forward(self, input: Tensor, device="cuda:0") -> Tensor:
-        input = input.to(device)
-        y_tilde = torch.t(input - self.inverted_bias)
-        x_tilde = torch.linalg.solve(self.inverted_weight, y_tilde)
-        x = torch.t(x_tilde)
-        return x
-
-
-class InvertedULayer(nn.Module):
-    def __init__(self, inverted_weight=None) -> None:
-        super(InvertedULayer, self).__init__()
-        self.inverted_weight = inverted_weight
-
-    def forward(self, input: Tensor, device="cuda:0") -> Tensor:
-        input = input.to(device)
-        y_tilde = torch.t(input)
-        x_tilde = torch.linalg.solve(self.inverted_weight, y_tilde)
-        x = torch.t(x_tilde)
-        return x
-
-
 """loss functions"""
 
 
-def gaussian_log_likelihood(output, model, layers):
+def gaussian_loss_function(output, model, layers):
     """compute the log likelihood with change of variables formula, average per pixel"""
     N, D = output.shape  # batch size and single output size
 
