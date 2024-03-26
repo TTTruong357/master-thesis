@@ -11,9 +11,9 @@ class CouplingLayer(nn.Module):
 
         # random split x = (x1, x2)
         choice = np.random.choice(layer_size, split_size_x1, replace=False)
-        ind = np.zeros(layer_size, dtype=bool)
+        ind = torch.zeros(layer_size, dtype=bool)
         ind[choice] = True
-        temp = np.arange(layer_size)
+        temp = torch.arange(layer_size)
         self.split_index = (temp[ind], temp[~ind])
 
         self.t_net = nn.ModuleList()
@@ -52,21 +52,23 @@ class CouplingLayer(nn.Module):
                 s = torch.sigmoid(s)
         s = self.s_net[-1](s)
 
-        z = torch.zeros_like(x)
+        # z = torch.zeros_like(x)
 
         if reverse:  # reverse == True: Generating
-            z[:, self.split_index[1]] = torch.exp(-s) * (x[:, self.split_index[1]] - t)
-            z[:, self.split_index[0]] = x[:, self.split_index[0]]
-            # y = torch.cat([x1,y2], dim=1)
+            x_new = torch.clone(x)
+            x_new[:, self.split_index[1]] = torch.exp(-s) * (x[:, self.split_index[1]] - t)
+            x_new[:, self.split_index[0]] = x[:, self.split_index[0]]
+            x = x_new
             log_det = torch.sum(-s, axis=1)
             # print(self.split_index[1], torch.exp(-s), - t)
         else:  # reverse == False: Normalizing
-            z[:, self.split_index[1]] = torch.exp(s) * x[:, self.split_index[1]] + t
-            z[:, self.split_index[0]] = x[:, self.split_index[0]]
-            # y = torch.cat([x1,y2], dim=1)
+            x_new = torch.clone(x)
+            x_new[:, self.split_index[1]] = torch.exp(s) * x[:, self.split_index[1]] + t
+            x_new[:, self.split_index[0]] = x[:, self.split_index[0]]
+            x = x_new
             log_det = torch.sum(s, axis=1)
             # print(self.split_index[1], torch.exp(s), t)
-        return z, log_det
+        return x, log_det
 
     def join(self, x1, x2):
         pass
@@ -90,14 +92,22 @@ class NN(nn.Module):
         return x
 
 
-def save_activations(activations_dict, name, blu, bla, out):
-    activations_dict[name].append(out)
+def save_activations(activations_dict, name, module, input, output):
+    activations_dict[name].append(output)
 
 
 def register_activation_hooks(model, layers_to_save):
-    """register forward hooks in specified layers"""
+    """Register forward hooks in specified layers"""
     activations_dict = {name: [] for name in layers_to_save}
+    handles = []
     for name, module in model.named_modules():
         if name in layers_to_save:
-            module.register_forward_hook(partial(save_activations, activations_dict, name))
-    return activations_dict
+            handle = module.register_forward_hook(partial(save_activations, activations_dict, name))
+            handles.append(handle)
+    return activations_dict, handles
+
+
+def remove_activation_hooks(handles):
+    """Remove registered hooks"""
+    for handle in handles:
+        handle.remove()

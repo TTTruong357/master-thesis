@@ -4,14 +4,9 @@ import numpy as np
 
 def gaussian_loss_function(output, layers):
     N, D = output.shape  # batch size and single output size
-    # print(layers)
-    """First summand"""
-    constant = torch.from_numpy(np.array(0.5 * D * N * np.log(np.pi))).type(torch.float32)
 
-    """Second summand"""
-    sum_squared_mappings = torch.square(output)
-    sum_squared_mappings = torch.sum(sum_squared_mappings)
-    sum_squared_mappings = 0.5 * sum_squared_mappings
+    constant = 0.5 * D * N * np.log(np.pi)
+    sum_squared_mappings = torch.square(output).sum() * 0.5
 
     """Determinants"""
     temp = [torch.reshape(layers[f'layers.{i}'][0][1], (-1, 1)) for i in range(len(layers))]

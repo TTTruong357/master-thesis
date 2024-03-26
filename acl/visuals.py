@@ -1,12 +1,12 @@
 import torch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from model import register_activation_hooks
+from model import register_activation_hooks, remove_activation_hooks
 import numpy as np
 from matplotlib import pyplot as plt
 
 
-def gaussian_likelihoods(data, model, layers):
+def gaussian_likelihoods(data, model, layers, device):
     N, D = data.shape  # batch size and single output size
     # print(layers)
     """First summand"""
@@ -20,29 +20,23 @@ def gaussian_likelihoods(data, model, layers):
     """Determinants"""
     log_dets = torch.cat([torch.reshape(layers[f'layers.{i}'][0][1], (-1, 1)) for i in range(len(layers))], axis=1)
 
-    print(sum_squared_mappings.shape, log_dets.shape)
-
     output = constant + sum_squared_mappings - torch.sum(log_dets, axis=1)
-
-    print(output, constant, sum_squared_mappings, torch.sum(log_dets, axis=1))
-
     output = output.to('cpu')
 
     return np.e ** np.array(-output)
 
 
-def compute_gaussian_density(model, x_grid):
+def compute_gaussian_density(model, x_grid, device):
     layers = []
     for j in range(len(model.layers)):
         layers.append("layers.{}".format(j))
 
     with torch.no_grad():
-        saved_layers = register_activation_hooks(model, layers_to_save=layers)
+        saved_layers, handles = register_activation_hooks(model, layers_to_save=layers)
         data = x_grid
-        # data = x_grid.clone().to(device)
         output = model(data, reverse=False)
-        density = gaussian_likelihoods(output, model, saved_layers)
-
+        density = gaussian_likelihoods(output, model, saved_layers, device)
+        remove_activation_hooks(handles)
     return density
 
 
@@ -66,18 +60,17 @@ def compute_uniform_circle_density(model, x_grid, device):
         layers.append("layers.{}".format(j))
 
     with torch.no_grad():
-        saved_layers = register_activation_hooks(model, layers_to_save=layers)
+        saved_layers, handles = register_activation_hooks(model, layers_to_save=layers)
         data = x_grid
-        # data = x_grid.clone().to(device)
         output = model(data, reverse=False)
         density = uniform_circle_likelihoods(output, model, saved_layers, device)
-
+        remove_activation_hooks(handles)
     return density
 
 
 def plot_transformed_grid_and_density(model, train_loader, device, sampling_data, grid_width,
-                                    x_range=(-1.5, 1.5), y_range=(-1.5, 1.5), x_lim=(-1, 1), y_lim=(-1, 1),
-                                    density_function=compute_uniform_circle_density):
+                                      x_range=(-1.5, 1.5), y_range=(-1.5, 1.5), x_lim=(-1, 1), y_lim=(-1, 1),
+                                      density_function=compute_uniform_circle_density):
     fig, ax = plt.subplots()
 
     plt.xlim(*x_lim)
@@ -122,11 +115,6 @@ def plot_transformed_grid_and_density(model, train_loader, device, sampling_data
     ax.scatter(np.array(output)[:, 0], np.array(output)[:, 1], c='green', alpha=1, s=2)
 
     return 0
-
-
-
-
-
 
 
 """Old version"""
