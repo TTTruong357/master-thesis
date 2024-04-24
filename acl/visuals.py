@@ -117,6 +117,44 @@ def plot_transformed_grid_and_density(model, train_loader, device, sampling_data
     return 0
 
 
+def plot_transformed_circle_grid_and_density(model, train_loader, device, sampling_data, grid_shape,
+                                             x_lim=(-1, 1), y_lim=(-1, 1),
+                                             density_function=compute_uniform_circle_density):
+    fig, ax = plt.subplots()
+
+    plt.xlim(*x_lim)
+    plt.ylim(*y_lim)
+
+    angles = np.linspace(0, 2 * np.pi, grid_shape[0])
+    circles = [np.stack((np.cos(angles), np.sin(angles)), axis=1) * s for s in np.linspace(0.1, 1, grid_shape[1])]
+    all_grid_points = np.concatenate(circles)
+    all_grid_points = torch.tensor(all_grid_points, device=device)
+
+    t = model(all_grid_points, reverse=True).detach()
+    t = t.to('cpu')
+    t = t.numpy()
+    temp_t = t[:t.shape[0] // 2]
+    x = np.array(temp_t)[:, 0]
+    y = np.array(temp_t)[:, 1]
+    z = density_function(model, torch.tensor(temp_t, device=device), device)
+
+    cntr2 = ax.tricontourf(x, y, z, levels=100, cmap="OrRd")
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(cntr2, cax=cax)
+
+    circles_transformed = np.split(np.array(t), 10)
+    for circle in circles_transformed:
+        plt.plot(circle[:, 0], circle[:, 1], '-o')
+
+    ax.scatter(train_loader[:, 0][:3200], train_loader[:, 1][:3200], c='black', alpha=1, s=2)
+    output = model(torch.tensor(sampling_data, device=device), reverse=True)
+    output = output.to('cpu').detach().numpy()
+    ax.scatter(np.array(output)[:, 0], np.array(output)[:, 1], c='green', alpha=1, s=2)
+
+    return 0
+
+
 """Old version"""
 
 # def uniform_circle_likelihoods(output, model, layers, density_param):

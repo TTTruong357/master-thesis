@@ -21,15 +21,15 @@ class CouplingLayer(nn.Module):
 
         self.activation = nn.ReLU()
 
-        self.t_net.append(nn.Linear(split_size_x1, nn_size[1]))
+        self.t_net.append(nn.Linear(split_size_x1, nn_size[1] , bias=False))
         for _ in range(nn_size[0]):
-            self.t_net.append(nn.Linear(nn_size[1], nn_size[1]))
-        self.t_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1))
+            self.t_net.append(nn.Linear(nn_size[1], nn_size[1], bias=False))
+        self.t_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1, bias=False))
 
-        self.s_net.append(nn.Linear(split_size_x1, nn_size[1]))
+        self.s_net.append(nn.Linear(split_size_x1, nn_size[1], bias=False))
         for _ in range(nn_size[0]):
-            self.s_net.append(nn.Linear(nn_size[1], nn_size[1]))
-        self.s_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1))
+            self.s_net.append(nn.Linear(nn_size[1], nn_size[1], bias=False))
+        self.s_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1, bias=False))
 
     def forward(self, x, reverse=False):
         t = self.t_net[0](x[:, self.split_index[0]])
@@ -39,7 +39,7 @@ class CouplingLayer(nn.Module):
             if i % 2 == 0:
                 t = self.activation(t)
             else:
-                t = torch.sigmoid(t)
+                t = self.activation(t)
         t = self.t_net[-1](t)  # last layer no activation
 
         s = self.s_net[0](x[:, self.split_index[0]])
@@ -49,7 +49,7 @@ class CouplingLayer(nn.Module):
             if i % 2 == 0:
                 s = self.activation(s)
             else:
-                s = torch.sigmoid(s)
+                s = self.activation(s)
         s = self.s_net[-1](s)
 
         # z = torch.zeros_like(x)
