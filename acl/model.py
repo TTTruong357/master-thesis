@@ -3,6 +3,8 @@ import torch.nn as nn
 import numpy as np
 from functools import partial
 
+from torch import Tensor
+
 
 class CouplingLayer(nn.Module):
 
@@ -21,7 +23,7 @@ class CouplingLayer(nn.Module):
 
         self.activation = nn.ReLU()
 
-        self.t_net.append(nn.Linear(split_size_x1, nn_size[1] , bias=False))
+        self.t_net.append(nn.Linear(split_size_x1, nn_size[1], bias=False))
         for _ in range(nn_size[0]):
             self.t_net.append(nn.Linear(nn_size[1], nn_size[1], bias=False))
         self.t_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1, bias=False))
@@ -74,6 +76,27 @@ class CouplingLayer(nn.Module):
         pass
 
 
+class Rotation(nn.Module):
+    def __init__(self, angle: float = 0.27, device: str = "cuda:0") -> None:
+        super(Rotation, self).__init__()
+        angle = torch.tensor(angle, device=device)
+        s = torch.sin(angle)
+        c = torch.cos(angle)
+
+        self.forward_matrix = torch.stack([torch.stack([c, -s]),
+                                           torch.stack([s, c])])
+
+        self.backward_matrix = torch.stack([torch.stack([c, s]),
+                                            torch.stack([-s, c])])
+
+    def forward(self, input: Tensor, reverse=False) -> Tensor:
+
+        if reverse:
+            return (self.backward_matrix @ input.T).T
+        else:
+            return (self.forward_matrix @ input.T).T
+
+
 class NN(nn.Module):
     def __init__(self, num_coupling_layers=1, layer_size=2, split_size_x1=1, nn_size=(2, 100), device="cuda:0"):
         super(NN, self).__init__()
@@ -82,13 +105,17 @@ class NN(nn.Module):
         for i in range(num_coupling_layers):
             self.layers.append(CouplingLayer(layer_size, split_size_x1, nn_size))
 
+        self.rotation = Rotation(angle=0.27, device=device)
+
     def forward(self, x, reverse=False):
         if reverse:
             for layer in reversed(self.layers):
+                self.rotation(x, reverse)
                 x, log_det = layer(x, reverse)
         else:
             for layer in self.layers:
                 x, log_det = layer(x, reverse)
+                self.rotation(x, reverse)
         return x
 
 
