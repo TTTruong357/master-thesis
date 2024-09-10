@@ -17,7 +17,7 @@ def gaussian_loss_function(output, layers):
 
 
 def uniform_circle_loss_function(output, model, layers, density_param):
-    N, D = output.shape  # batch size and single output size
+    """Failed first attempt"""
 
     """Uniform density"""
     dist = torch.square(output)
@@ -33,6 +33,8 @@ def uniform_circle_loss_function(output, model, layers, density_param):
     return sum_uniform - sum_log_dets
 
 
+# Construction of Uniform density with augmented tail
+
 def narrow_gaussian(x, ell):
     return torch.exp(-0.5 * (x / ell) ** 2)
 
@@ -43,7 +45,6 @@ def approx_count_nonzero(x, ell=1e-3):
 
 
 def uniform_circle_loss_function_method2(output, layers):
-    # N, D = output.shape  # batch size and single output size
 
     """Uniform density"""
     distances = torch.square(output)
@@ -105,30 +106,84 @@ def uniform_ngon_loss_function(output, layers, sv, support_angles):
     return sum_uniform - sum_log_dets
 
 
-# isoperimetric problem
-
 # Isoperimetrisches Problem
 
-def isoperimetric_loss(points):
+def isoperimetric_loss(points, grid_input=None):
     diff = torch.diff(torch.concatenate((points, points[:1])), axis=0)
-    distances = torch.sum(diff ** 2, axis=1) ** 0.5
-    return torch.sum(distances)
+    diff = torch.diff(points, axis=0)
+    distances = torch.sum(diff ** 2, axis=1)
+
+    boundary_loss = torch.sum(distances)
+
+    print(f' boundary_loss: {boundary_loss}')
+
+    return boundary_loss
 
 
 def orthogonal_projection(v, grad):
     return grad - grad @ v * v / torch.norm(v) ** 2
 
 
-def get_grad_vector(model):
+def compute_exact_volume_change(layers):
+    '''assuming volume of figure is 1'''
+    temp = [torch.reshape(layers[f'layers.{i}'][0][1], (-1, 1)) for i in range(len(layers))]
+    log_dets = torch.cat(temp, axis=1)
+    return (torch.e ** log_dets.sum(axis=1)).mean()
+
+
+def get_weights_vector(model):
+    with torch.no_grad():
+        weights = []
+
+        for coupling_layer in model.layers:
+            for linear_layer in coupling_layer.t_net:
+                weights.append(linear_layer.weight)
+                weights.append(linear_layer.bias)
+            for linear_layer in coupling_layer.s_net:
+                weights.append(linear_layer.weight)
+                weights.append(linear_layer.bias)
+
+        vector = torch.concatenate([w.flatten() for w in weights])
+        return vector
+
+
+def get_grad_vector(model, device):
+    shapes = get_shapes(model)
+
     weights = []
 
+    counter = 0
     for coupling_layer in model.layers:
         for linear_layer in coupling_layer.t_net:
-            weights.append(linear_layer.weight.grad)
-            weights.append(linear_layer.bias.grad)
+
+            grad = linear_layer.weight.grad
+            if grad is None:
+                weights.append(torch.zeros(shapes[counter], device=device))
+            else:
+                weights.append(grad)
+            counter += 1
+
+            grad = linear_layer.bias.grad
+            if grad is None:
+                weights.append(torch.zeros(shapes[counter], device=device))
+            else:
+                weights.append(grad)
+            counter += 1
+
         for linear_layer in coupling_layer.s_net:
-            weights.append(linear_layer.weight.grad)
-            weights.append(linear_layer.bias.grad)
+            grad = linear_layer.weight.grad
+            if grad is None:
+                weights.append(torch.zeros(shapes[counter], device=device))
+            else:
+                weights.append(grad)
+            counter += 1
+
+            grad = linear_layer.bias.grad
+            if grad is None:
+                weights.append(torch.zeros(shapes[counter], device=device))
+            else:
+                weights.append(grad)
+            counter += 1
 
     vector = torch.concatenate([w.flatten() for w in weights])
     return vector
@@ -167,35 +222,3 @@ def assign_grad_weights(model, grad_weights):
             counter += 1
             linear_layer.bias.grad = grad_weights[counter]
             counter += 1
-
-
-def compute_area_triangle(points):
-    diff = torch.diff(torch.concatenate((points, points[:1])), axis=0)
-    distances = torch.sum(diff ** 2, axis=1) ** 0.5
-    s = torch.sum(distances) / 2
-    return (s * torch.prod(s - distances)) ** 0.5
-
-
-def compute_volume(points, origin=torch.tensor([0, 0], device='cpu', requires_grad=False)):
-    sum_vol = 0
-    for i in range(points.shape[0] - 1):
-        # print(compute_area_triangle(torch.concatenate([origin, points[i], points[i+1]]).reshape(3,2)))
-        sum_vol += compute_area_triangle(torch.concatenate([origin, points[i], points[i + 1]]).reshape(3, 2))
-    sum_vol += compute_area_triangle(torch.concatenate([origin, points[-1], points[0]]).reshape(3, 2))
-    return sum_vol
-
-
-def compute_area(points, origin=torch.tensor([0., 0.], device='cpu', requires_grad=False)):
-    repeated = origin.repeat(points.shape[0], 1)
-    stacked_points = torch.stack((repeated, points, torch.roll(points, -1, 0), repeated))
-    t = torch.diff(stacked_points, axis=0)
-    length = torch.sum(t ** 2, axis=2) ** 0.5
-    s = torch.sum(length, axis=0) / 2
-    area_triangles = torch.prod(s - length, axis=0) ** 0.5 * s ** 0.5  # , s, length, s-length
-    area = torch.sum(area_triangles)
-    return area
-
-
-def compute_area(points, origin=torch.tensor([0., 0.], device='cpu', requires_grad=False)):
-    coordinates = points - origin
-    return torch.sum(torch.sum(coordinates ** 2, axis=1) ** 0.5)

@@ -5,6 +5,8 @@ from functools import partial
 
 from torch import Tensor
 
+from pathlib import Path
+
 
 class CouplingLayer(nn.Module):
 
@@ -23,15 +25,15 @@ class CouplingLayer(nn.Module):
 
         self.activation = nn.ReLU()
 
-        self.t_net.append(nn.Linear(split_size_x1, nn_size[1], bias=False))
+        self.t_net.append(nn.Linear(split_size_x1, nn_size[1], bias=True))
         for _ in range(nn_size[0]):
-            self.t_net.append(nn.Linear(nn_size[1], nn_size[1], bias=False))
-        self.t_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1, bias=False))
+            self.t_net.append(nn.Linear(nn_size[1], nn_size[1], bias=True))
+        self.t_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1, bias=True))
 
-        self.s_net.append(nn.Linear(split_size_x1, nn_size[1], bias=False))
+        self.s_net.append(nn.Linear(split_size_x1, nn_size[1], bias=True))
         for _ in range(nn_size[0]):
-            self.s_net.append(nn.Linear(nn_size[1], nn_size[1], bias=False))
-        self.s_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1, bias=False))
+            self.s_net.append(nn.Linear(nn_size[1], nn_size[1], bias=True))
+        self.s_net.append(nn.Linear(nn_size[1], layer_size - split_size_x1, bias=True))
 
     def forward(self, x, reverse=False):
         t = self.t_net[0](x[:, self.split_index[0]])
@@ -71,9 +73,6 @@ class CouplingLayer(nn.Module):
             log_det = torch.sum(s, axis=1)
             # print(self.split_index[1], torch.exp(s), t)
         return x, log_det
-
-    def join(self, x1, x2):
-        pass
 
 
 class Rotation(nn.Module):
@@ -138,3 +137,31 @@ def remove_activation_hooks(handles):
     """Remove registered hooks"""
     for handle in handles:
         handle.remove()
+
+
+def save_model(model, data='ellipse', checkpoint_number=1):
+    checkpoints_dir = './acl_uniform/'
+    save_path = Path(checkpoints_dir) / Path("{}/experiment{}.pth".format(data, checkpoint_number))
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), save_path)
+    np.savez(f"{checkpoints_dir}/{data}/split_indices{checkpoint_number}",
+             [model.layers[i].split_index for i in range(len(model.layers))])
+    print("Saved checkpoint:", save_path)
+
+
+def load_model(device, num_coupling_layers=3, layer_size=2, split_size_x1=1, nn_size=(1, 100),
+               path=f"./acl_uniform/ellipse/experiment{1}.pth"):
+
+    model = NN(num_coupling_layers, layer_size, split_size_x1, nn_size).to(device)
+    model.load_state_dict(torch.load(path))
+    model.eval()
+
+    path = path.replace("experiment", "split_indices")
+    path = path.replace("pth", "npz")
+    npzfile = np.load(path)
+    tensors = np.array_split(torch.tensor(npzfile['arr_0']).reshape(-1), 2 * num_coupling_layers)
+    split_indices = [(tensors[2 * i], tensors[2 * i + 1]) for i in range(num_coupling_layers)]
+    for i in range(num_coupling_layers):
+        model.layers[i].split_index = split_indices[i]
+
+    return model
