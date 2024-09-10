@@ -8,3 +8,5 @@ hyperopt==0.2.7
 setuptools==69.1.1 # for hyperopt to work, otheriwse: ModuleNotFoundError: No module named 'pkg_resources'
 pandas==2.0.3
 torchcfm
+opencv-python
+ffmpeg-python
