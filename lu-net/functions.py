@@ -1,9 +1,7 @@
-from turtle import forward
 import torch
 from torch import Tensor
 import torch.nn as nn
 import numpy as np
-from scipy import interpolate
 
 
 class LeakySoftplus(nn.Module):
@@ -37,23 +35,6 @@ class InvertedLeakySoftplus(torch.autograd.Function):
         to stash information for backward computation. You can cache arbitrary
         objects for use in the backward pass using the ctx.save_for_backward method.
         """
-        # activation = LeakySoftplus()
-        # x = activation(y)
-        # y_approx = activation(x)
-        # factor = 0.1
-        # step = 0.1
-        # while torch.any(torch.sum((y_approx - y)**2, axis=1) > 1e-6):
-        #     x[torch.where(y_approx - y > 0)] = x[torch.where(y_approx - y > 0)]-step
-        #     x[torch.where(y_approx - y < 0)] = x[torch.where(y_approx - y < 0)]+step
-        #     y_approx = activation(x)
-        #     #print(y_approx, x)
-        #     step *= 0.99
-
-        # activation = LeakySoftplus()
-        # x = torch.arange(-1000., 1000.001, 0.001, device=y.get_device())
-        # y_real = activation(x)
-        # x = x[torch.searchsorted(y_real, y)]
-        #
         activation = LeakySoftplus()
         x = activation(y)
         y_approx = activation(x)

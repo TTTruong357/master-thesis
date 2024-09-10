@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from functions import LeakySoftplus, InvertedLeakySoftplus
 from functools import partial
-
+from pathlib import Path
 
 def get_zero_grad_hook(mask, device="cuda:0"):
     """zero out gradients"""
@@ -129,3 +129,23 @@ def remove_activation_hooks(handles):
     """Remove registered hooks"""
     for handle in handles:
         handle.remove()
+
+
+"""
+save and load the model
+"""
+
+
+def save_model(model, data='Ellipse', checkpoint_number=31):
+    checkpoints_dir = './lu_uniform/'
+    save_path = Path(checkpoints_dir) / Path("{}/experiment{}.pth".format(data, checkpoint_number))
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), save_path)
+    print("Saved checkpoint:", save_path)
+
+
+def load_model(device, num_lu_blocks=12, layer_size=2, path=f"./lu_uniform/Ellipse/experiment{1}.pth"):
+    model = LUNet(num_lu_blocks=num_lu_blocks, layer_size=layer_size).to(device)
+    model.load_state_dict(torch.load(path))
+    model.eval()
+    return model
